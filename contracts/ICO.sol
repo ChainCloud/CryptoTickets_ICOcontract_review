@@ -37,11 +37,6 @@ library SafeMath {
     function min256(uint256 a, uint256 b) internal constant returns (uint256) {
         return a < b ? a : b;
     }
-    function assert(bool assertion) internal {
-        if (!assertion) {
-            throw;
-        }
-    }
 }
 
 
@@ -51,11 +46,11 @@ contract ERC20 {
     mapping(address => uint256) balances;
     mapping(address => mapping (address => uint256)) allowed;
 
-    function balanceOf(address _owner) constant returns (uint balance);
-    function transfer(address _to, uint _value) returns (bool success);
-    function transferFrom(address _from, address _to, uint _value) returns (bool success);
-    function approve(address _spender, uint _value) returns (bool success);
-    function allowance(address _owner, address _spender) constant returns (uint remaining);
+    function balanceOf(address _owner) constant returns (uint);
+    function transfer(address _to, uint _value) returns (bool);
+    function transferFrom(address _from, address _to, uint _value) returns (bool);
+    function approve(address _spender, uint _value) returns (bool);
+    function allowance(address _owner, address _spender) constant returns (uint);
 
     event Transfer(address indexed _from, address indexed _to, uint _value);
     event Approval(address indexed _owner, address indexed _spender, uint _value);
@@ -66,9 +61,14 @@ contract ERC20 {
 
 contract CryptoTicketsICO {
     uint public constant Tokens_For_Sale = 525000000*1e18; // Tokens for Sale without bonuses(HardCap)
+
+    // Style: Caps should not be used for vars, only for consts!
     uint public Rate_Eth = 320; // Rate USD per ETH
     uint public Token_Price = 25 * Rate_Eth; // TKT per ETH
     uint public SoldNoBonuses = 0; //Sold tokens without bonuses
+
+    // 1 - this is never used???
+    // 2 - why 1e16 ???
     uint constant Token_Limit = 80392156863 * 1e16; //Total supply(HardCap)
 
     event StartICO();
@@ -171,11 +171,17 @@ contract CryptoTicketsICO {
     function buy(address _investor, uint _tktValue) internal {
        require(statusICO == StatusICO.Started);
        require(_tktValue > 0);
+
+       // Style: underscore in front is used for method params...
        uint _bonus = getBonus(_tktValue);
+
+       // Use SafeMath
        uint _total = _tktValue + _bonus;
 
        require(SoldNoBonuses + _tktValue <= Tokens_For_Sale);
        tkt.mint(_investor, _total);
+
+       // Use SafeMath
        SoldNoBonuses += _tktValue;
     }
 
@@ -199,6 +205,9 @@ contract CryptoTicketsICO {
 
 //function to withdraw ETH from smart contract
 
+    // SUGGESTION:
+    // allow anyone to call this in case 'ICO is finished'
+    // even if you loose you manager keys -> you still will be able to get ETH
     function withdrawEther(uint256 _value) external managerOnly {
        Company.transfer(_value);
     }
@@ -239,59 +248,64 @@ contract TKT  is ERC20 {
 
     function burn(uint256 _value) {
        require(!tokensAreFrozen);
-       require(balances[msg.sender]>_value);
+
+       // this check is not required, because 'sub' will throw 
+       //require(balances[msg.sender]>_value);
+
        balances[msg.sender] = balances[msg.sender].sub(_value);
        totalSupply = totalSupply.sub(_value);
        Burn(msg.sender, _value);
     }
 
 
-    function balanceOf(address _owner) constant returns (uint256 balance) {
+    function balanceOf(address _owner) constant returns (uint256) {
          return balances[_owner];
     }
 
 
-    function transfer(address _to, uint256 _amount) returns (bool success) {
+    function transfer(address _to, uint256 _amount) returns (bool) {
         require(!tokensAreFrozen);
-        if (balances[msg.sender] >= _amount && _amount > 0 && balances[_to] + _amount > balances[_to])
-        {
-            balances[msg.sender] = balances[msg.sender].sub(_amount);
-            balances[_to] = balances[_to].add(_amount);
-            Transfer(msg.sender, _to, _amount);
-            return true;
-        }
-        else
-        {
-              return false;
-        }
+
+        // this check is not required, because 'sub' will throw 
+        // see https://github.com/OpenZeppelin/zeppelin-solidity/blob/master/contracts/token/BasicToken.sol
+        //if (balances[msg.sender] >= _amount && _amount > 0 && balances[_to] + _amount > balances[_to])
+
+        balances[msg.sender] = balances[msg.sender].sub(_amount);
+        balances[_to] = balances[_to].add(_amount);
+        Transfer(msg.sender, _to, _amount);
+        return true;
     }
 
 
-    function transferFrom(address _from, address _to, uint256 _amount) returns (bool success) {
+    function transferFrom(address _from, address _to, uint256 _amount) returns (bool) {
         require(!tokensAreFrozen);
-        if (balances[_from] >= _amount && allowed[_from][msg.sender] >= _amount && _amount > 0 && balances[_to] + _amount > balances[_to])
-        {
-            balances[_from] = balances[_from].sub(_amount);
-            allowed[_from][msg.sender] = allowed[_from][msg.sender].sub(_amount);
-            balances[_to] = balances[_to].add(_amount);
-            Transfer(_from, _to, _amount);
-            return true;
-         }
-         else
-        {
-             return false;
-        }
+
+        // this check is not required, because 'sub' will throw 
+        // see https://github.com/OpenZeppelin/zeppelin-solidity/blob/master/contracts/token/StandardToken.sol
+        //if (balances[_from] >= _amount && allowed[_from][msg.sender] >= _amount && _amount > 0 && balances[_to] + _amount > balances[_to])
+
+        balances[_from] = balances[_from].sub(_amount);
+        allowed[_from][msg.sender] = allowed[_from][msg.sender].sub(_amount);
+        balances[_to] = balances[_to].add(_amount);
+        Transfer(_from, _to, _amount);
+        return true;
      }
 
 
-    function approve(address _spender, uint256 _amount) returns (bool success) {
+    function approve(address _spender, uint256 _amount) returns (bool) {
+        // To change the approve amount you first have to reduce the addresses`
+        //  allowance to zero by calling `approve(_spender, 0)` if it is not
+        //  already 0 to mitigate the race condition described here:
+        //  https://github.com/ethereum/EIPs/issues/20#issuecomment-263524729
+        require((_value == 0) || (allowed[msg.sender][_spender] == 0));
+
         allowed[msg.sender][_spender] = _amount;
         Approval(msg.sender, _spender, _amount);
         return true;
     }
 
 
-    function allowance(address _owner, address _spender) constant returns (uint256 remaining) {
+    function allowance(address _owner, address _spender) constant returns (uint256) {
         return allowed[_owner][_spender];
     }
 }
